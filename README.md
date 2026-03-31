@@ -30,13 +30,12 @@ Portal de governanca de acessos com SSO Keycloak, fluxo de solicitacao/aprovacao
 - Node.js 20+
 - npm 10+
 - Docker Desktop
-- Infra do `docker-compose.yml` em `C:\Users\felipe\Python`
 
 ## Infra (Postgres/Keycloak)
 
-A partir de `C:\Users\felipe\Python`:
+A partir da raiz do projeto:
 
-```powershell
+```bash
 docker compose up -d
 ```
 
@@ -44,14 +43,28 @@ Servicos usados:
 
 - Postgres: `localhost:5432` (`iga_portal`)
 - Keycloak: `http://localhost:8080`
-- (Opcional) pgAdmin: `http://localhost:5050`
+- (Opcional) pgAdmin: `http://localhost:5050` — sobe com `docker compose --profile tools up -d`
+
+### Configuracao inicial do Keycloak (primeira vez)
+
+1. Acesse `http://localhost:8080` — login `admin / admin`
+2. Crie realm `iga`
+3. Crie client `iga-portal` (OpenID Connect, Standard Flow)
+   - Valid Redirect URIs: `http://localhost:3000/*`
+   - Web Origins: `http://localhost:3000`
+4. Em **Client Scopes > roles > Mappers**, adicione mapper `groups`:
+   - Tipo: Group Membership
+   - Token Claim Name: `groups`
+   - Marque: Add to ID token, Access token, Userinfo
+5. Copie o **Client Secret** gerado para o `.env`
 
 ## Configuracao de Ambiente
 
 No projeto `iga-portal`:
 
-```powershell
-copy .env.example .env
+```bash
+cp .env.example .env
+# Edite .env com o KEYCLOAK_CLIENT_SECRET gerado no passo acima
 ```
 
 Variaveis principais (`.env`):
