@@ -131,6 +131,82 @@ async function runBatches(items, fn) {
   return { ok, skip, err };
 }
 
+// ─── Keycloak realm/client setup ─────────────────────────────────────────────
+
+async function ensureRealm(token) {
+  const res = await fetch(`${KC_BASE}/admin/realms/${KC_REALM}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (res.status === 200) return; // já existe
+  const create = await fetch(`${KC_BASE}/admin/realms`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ realm: KC_REALM, enabled: true, displayName: "IGA Portal" }),
+  });
+  if (!create.ok) throw new Error(`Falha ao criar realm: ${create.status} ${await create.text()}`);
+}
+
+async function ensureClient(token) {
+  // Busca client existente
+  const res = await fetch(`${KC_BASE}/admin/realms/${KC_REALM}/clients?clientId=iga-portal`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const clients = await res.json();
+  if (clients.length > 0) return clients[0].id;
+
+  // Cria client
+  const create = await fetch(`${KC_BASE}/admin/realms/${KC_REALM}/clients`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      clientId: "iga-portal",
+      name: "IGA Portal",
+      protocol: "openid-connect",
+      enabled: true,
+      publicClient: false,
+      standardFlowEnabled: true,
+      directAccessGrantsEnabled: false,
+      redirectUris: ["http://localhost:3000/*"],
+      webOrigins: ["http://localhost:3000"],
+    }),
+  });
+  if (!create.ok) throw new Error(`Falha ao criar client: ${create.status} ${await create.text()}`);
+
+  const again = await fetch(`${KC_BASE}/admin/realms/${KC_REALM}/clients?clientId=iga-portal`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const list = await again.json();
+  return list[0].id;
+}
+
+async function ensureGroupsMapper(token, clientId) {
+  // Verifica se já existe mapper "groups"
+  const res = await fetch(`${KC_BASE}/admin/realms/${KC_REALM}/clients/${clientId}/protocol-mappers/models`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const mappers = await res.json();
+  if (mappers.some((m) => m.name === "groups")) return;
+
+  const create = await fetch(`${KC_BASE}/admin/realms/${KC_REALM}/clients/${clientId}/protocol-mappers/models`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: "groups",
+      protocol: "openid-connect",
+      protocolMapper: "oidc-group-membership-mapper",
+      consentRequired: false,
+      config: {
+        "full.path": "false",
+        "id.token.claim": "true",
+        "access.token.claim": "true",
+        "userinfo.token.claim": "true",
+        "claim.name": "groups",
+      },
+    }),
+  });
+  if (!create.ok) throw new Error(`Falha ao criar mapper: ${create.status} ${await create.text()}`);
+}
+
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -139,6 +215,16 @@ async function main() {
   // Auth
   process.stdout.write("Autenticando no Keycloak... ");
   const token = await getAdminToken();
+  console.log("OK");
+
+  // Realm + Client + Mapper
+  process.stdout.write("Verificando realm e client... ");
+  await ensureRealm(token);
+  const clientId = await ensureClient(token);
+  console.log("OK");
+
+  process.stdout.write("Verificando mapper de grupos no token... ");
+  await ensureGroupsMapper(token, clientId);
   console.log("OK\n");
 
   // ── Passo 1: Grupos ────────────────────────────────────────────────────────
